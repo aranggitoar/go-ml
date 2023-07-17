@@ -11,51 +11,51 @@ import (
 func (sann *SimpleANN[T]) Initialize(inputUnits int, outputUnits int,
 	minInitValue float64, maxInitValue float64) {
 
-	sann.N1.Weights.RandMatrix(outputUnits, inputUnits, T(minInitValue),
+	sann.NL1.Weights.RandMatrix(outputUnits, inputUnits, T(minInitValue),
 		T(maxInitValue))
 	// W1Row is the row of b1 as the shape of the result of W1 X is row of
 	// W1 and column of X.
-	sann.N1.Biases.RandMatrix(outputUnits, 1, T(minInitValue),
+	sann.NL1.Biases.RandMatrix(outputUnits, 1, T(minInitValue),
 		T(maxInitValue))
-	sann.N2.Weights.RandMatrix(outputUnits, outputUnits, T(minInitValue),
+	sann.NL2.Weights.RandMatrix(outputUnits, outputUnits, T(minInitValue),
 		T(maxInitValue))
-	sann.N2.Biases.RandMatrix(outputUnits, 1, T(minInitValue),
+	sann.NL2.Biases.RandMatrix(outputUnits, 1, T(minInitValue),
 		T(maxInitValue))
 
-	// sann.dN1.Weights.ZerosMatrix(outputUnits, inputUnits)
-	// sann.dN1.Biases.ZerosMatrix(outputUnits, 1)
-	// sann.dN2.Weights.ZerosMatrix(outputUnits, outputUnits)
-	// sann.dN2.Biases.ZerosMatrix(outputUnits, 1)
+	// sann.dNL1.Weights.ZerosMatrix(outputUnits, inputUnits)
+	// sann.dNL1.Biases.ZerosMatrix(outputUnits, 1)
+	// sann.dNL2.Weights.ZerosMatrix(outputUnits, outputUnits)
+	// sann.dNL2.Biases.ZerosMatrix(outputUnits, 1)
 }
 
 func (sann *SimpleANN[T]) Update(dW1 m.Matrix[T], db1 T, dW2 m.Matrix[T], db2 T, alpha T) {
-	sann.N1.Weights = sann.N1.Weights.ScaOp(alpha, 1)
-	sann.N1.Weights = sann.N1.Weights.Dot(dW1)
+	sann.NL1.Weights = sann.NL1.Weights.ScaOp(alpha, 1)
+	sann.NL1.Weights = sann.NL1.Weights.Dot(dW1)
 
-	sann.N1.Biases = sann.N1.Biases.ScaOp(alpha, 1)
-	sann.N1.Biases = sann.N1.Biases.ScaOp(db1, 2)
+	sann.NL1.Biases = sann.NL1.Biases.ScaOp(alpha, 1)
+	sann.NL1.Biases = sann.NL1.Biases.ScaOp(db1, 2)
 
-	sann.N2.Weights = sann.N2.Weights.ScaOp(alpha, 1)
-	sann.N2.Weights = sann.N2.Weights.Dot(dW2)
+	sann.NL2.Weights = sann.NL2.Weights.ScaOp(alpha, 1)
+	sann.NL2.Weights = sann.NL2.Weights.Dot(dW2)
 
-	sann.N2.Biases = sann.N2.Biases.ScaOp(alpha, 1)
-	sann.N2.Biases = sann.N2.Biases.ScaOp(db1, 2)
+	sann.NL2.Biases = sann.NL2.Biases.ScaOp(alpha, 1)
+	sann.NL2.Biases = sann.NL2.Biases.ScaOp(db1, 2)
 }
 
 func (sann *SimpleANN[T]) ForwardPropagation(X m.Matrix[T]) (m.Matrix[T],
 	m.Matrix[T], m.Matrix[T], m.Matrix[T]) {
-	_, W1Column := sann.N1.Weights.Shape()
+	_, W1Column := sann.NL1.Weights.Shape()
 	XRow, _ := X.Shape()
 
 	if W1Column != XRow {
 		return X, X, X, X
 	}
 
-	Z1 := sann.N1.Weights.Dot(X)
-	Z1 = Z1.Add(sann.N1.Biases)
+	Z1 := sann.NL1.Weights.Dot(X)
+	Z1 = Z1.Add(sann.NL1.Biases)
 	A1 := ReLU(Z1)
-	Z2 := sann.N2.Weights.Dot(A1)
-	Z2 = Z2.Add(sann.N2.Biases)
+	Z2 := sann.NL2.Weights.Dot(A1)
+	Z2 = Z2.Add(sann.NL2.Biases)
 	A2 := Softmax(A1)
 
 	return Z1, A1, Z2, A2
@@ -72,7 +72,7 @@ func (sann *SimpleANN[T]) BackPropagation(Z1 m.Matrix[T], A1 m.Matrix[T],
 	dW2 = dW2.ScaOp(1/Y_len, 2)
 	db2 := 1 / T(len(Y)) * dZ2.Sum()
 
-	dZ1 := sann.N2.Weights.Transpose()
+	dZ1 := sann.NL2.Weights.Transpose()
 	dZ1 = dZ1.Dot(dZ2)
 	dZ1 = dZ1.Dot(ReLUDerivation(Z1))
 
