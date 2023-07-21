@@ -2,17 +2,24 @@
 
 package ann
 
-import m "aranggitoar/go-ml/matrix"
+import (
+	"gonum.org/v1/gonum/mat"
+)
 
-type NeuronLayers[T m.PossibleMatrixTypes] struct {
-	Weights m.Matrix[T]
-	Biases  m.Matrix[T]
+// type NeuronLayers[T m.PossibleMatrixTypes] struct {
+// 	Weights m.Matrix[T]
+// 	Biases  m.Matrix[T]
+// }
+
+type NeuronLayer struct {
+	Weights mat.Dense
+	Biases  mat.Dense
 }
 
 // Simple two layer ANN.
-type SimpleANN[T m.PossibleMatrixTypes] struct {
-	NL1 NeuronLayers[T]
-	NL2 NeuronLayers[T]
+type SimpleANN struct {
+	NL1 NeuronLayer
+	NL2 NeuronLayer
 	// Deviation values for N1 and N2 weights and biases correction in
 	// backpropagation. It is deactivated for now as it doesn't seem to be
 	// necessary to be included in the base struct.

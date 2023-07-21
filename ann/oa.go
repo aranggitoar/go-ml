@@ -4,92 +4,103 @@ package ann
 
 import (
 	"aranggitoar/go-ml/de"
+	"aranggitoar/go-ml/eval"
 	m "aranggitoar/go-ml/matrix"
 	"fmt"
+
+	"gonum.org/v1/gonum/mat"
 )
 
-func (sann *SimpleANN[T]) Initialize(inputUnits int, outputUnits int,
+func (sann *SimpleANN) Initialize(inputUnits int, outputUnits int,
 	minInitValue float64, maxInitValue float64) {
 
-	sann.NL1.Weights.RandMatrix(outputUnits, inputUnits, T(minInitValue),
-		T(maxInitValue))
-	// W1Row is the row of b1 as the shape of the result of W1 X is row of
-	// W1 and column of X.
-	sann.NL1.Biases.RandMatrix(outputUnits, 1, T(minInitValue),
-		T(maxInitValue))
-	sann.NL2.Weights.RandMatrix(outputUnits, outputUnits, T(minInitValue),
-		T(maxInitValue))
-	sann.NL2.Biases.RandMatrix(outputUnits, 1, T(minInitValue),
-		T(maxInitValue))
+	sann.NL1.Weights = *m.RandMatrix(outputUnits, inputUnits, minInitValue, maxInitValue)
+	// NL1 Weights row is the row of NL1 Biases as the shape of the product
+	// of NL1 Weights and X is row of NL1 Weights and column of X.
+	sann.NL1.Biases = *m.RandMatrix(outputUnits, 1, minInitValue, maxInitValue)
 
-	// sann.dNL1.Weights.ZerosMatrix(outputUnits, inputUnits)
-	// sann.dNL1.Biases.ZerosMatrix(outputUnits, 1)
-	// sann.dNL2.Weights.ZerosMatrix(outputUnits, outputUnits)
-	// sann.dNL2.Biases.ZerosMatrix(outputUnits, 1)
+	sann.NL2.Weights = *m.RandMatrix(outputUnits, outputUnits, minInitValue, maxInitValue)
+	sann.NL2.Biases = *m.RandMatrix(outputUnits, 1, minInitValue, maxInitValue)
 }
 
-func (sann *SimpleANN[T]) Update(dW1 m.Matrix[T], db1 T, dW2 m.Matrix[T], db2 T, alpha T) {
-	sann.NL1.Weights = sann.NL1.Weights.ScaOp(alpha, 1)
-	sann.NL1.Weights = sann.NL1.Weights.Dot(dW1)
+func (sann *SimpleANN) Update(dW1 mat.Dense, db1 float64, dW2 mat.Dense,
+	db2, alpha float64) {
+	sann.NL1.Weights.Apply(func(i, j int, v float64) float64 {
+		return v - alpha
+	}, &sann.NL1.Weights)
+	sann.NL1.Weights.MulElem(&sann.NL1.Weights, &dW1)
 
-	sann.NL1.Biases = sann.NL1.Biases.ScaOp(alpha, 1)
-	sann.NL1.Biases = sann.NL1.Biases.ScaOp(db1, 2)
+	sann.NL1.Biases.Apply(func(i, j int, v float64) float64 {
+		return v - alpha*db1
+	}, &sann.NL1.Biases)
 
-	sann.NL2.Weights = sann.NL2.Weights.ScaOp(alpha, 1)
-	sann.NL2.Weights = sann.NL2.Weights.Dot(dW2)
+	sann.NL2.Weights.Apply(func(i, j int, v float64) float64 {
+		return v - alpha
+	}, &sann.NL2.Weights)
+	sann.NL2.Weights.MulElem(&sann.NL2.Weights, &dW2)
 
-	sann.NL2.Biases = sann.NL2.Biases.ScaOp(alpha, 1)
-	sann.NL2.Biases = sann.NL2.Biases.ScaOp(db1, 2)
+	sann.NL2.Biases.Apply(func(i, j int, v float64) float64 {
+		return v - alpha*db2
+	}, &sann.NL2.Biases)
 }
 
-func (sann *SimpleANN[T]) ForwardPropagation(X m.Matrix[T]) (m.Matrix[T],
-	m.Matrix[T], m.Matrix[T], m.Matrix[T]) {
-	_, W1Column := sann.NL1.Weights.Shape()
-	XRow, _ := X.Shape()
+func (sann *SimpleANN) ForwardPropagation(X mat.Dense) (mat.Dense, mat.Dense, mat.Dense, mat.Dense) {
+	var Z1 mat.Dense
+	var Z2 mat.Dense
 
-	if W1Column != XRow {
-		return X, X, X, X
-	}
+	Z1.Mul(&sann.NL1.Weights, &X)
+	Z1.Add(&Z1, m.Broadcast(sann.NL1.Weights, Z1))
 
-	Z1 := sann.NL1.Weights.Dot(X)
-	Z1 = Z1.Add(sann.NL1.Biases)
-	A1 := ReLU(Z1)
-	Z2 := sann.NL2.Weights.Dot(A1)
-	Z2 = Z2.Add(sann.NL2.Biases)
+	A1 := *ReLU(Z1)
+
+	Z2.Mul(&sann.NL2.Weights, &A1)
+	Z2.Add(&Z2, m.Broadcast(sann.NL2.Biases, Z2))
+
 	A2 := Softmax(A1)
 
 	return Z1, A1, Z2, A2
 }
 
-func (sann *SimpleANN[T]) BackPropagation(Z1 m.Matrix[T], A1 m.Matrix[T],
-	Z2 m.Matrix[T], A2 m.Matrix[T], X m.Matrix[T], Y []T) (m.Matrix[T], T, m.Matrix[T], T) {
+func (sann *SimpleANN) BackPropagation(Z1, A1, Z2, A2, X mat.Dense,
+	Y []float64) (mat.Dense, float64, mat.Dense, float64) {
+	var dZ1 mat.Dense
+	var dZ2 mat.Dense
+	var dW1 mat.Dense
+	var dW2 mat.Dense
 	oneHotY := de.OneHot(Y)
-	Y_len := T(len(Y))
+	mult := 1 / float64(len(Y))
 
-	dZ2 := A2.Subtract(oneHotY)
+	dZ2.Sub(&A2, oneHotY)
 
-	dW2 := dZ2.Dot(A1.Transpose())
-	dW2 = dW2.ScaOp(1/Y_len, 2)
-	db2 := 1 / T(len(Y)) * dZ2.Sum()
+	dW2.Mul(&dZ2, A1.T())
+	dW2.Apply(
+		func(i int, j int, v float64) float64 {
+			return mult * v
+		}, &dW2)
 
-	dZ1 := sann.NL2.Weights.Transpose()
-	dZ1 = dZ1.Dot(dZ2)
-	dZ1 = dZ1.Dot(ReLUDerivation(Z1))
+	db2 := mult * mat.Sum(&dZ2)
 
-	dW1 := dZ1.Dot(X.Transpose())
-	dW1 = dW1.ScaOp(1/Y_len, 2)
-	db1 := 1 / Y_len * dZ1.Sum()
+	dZ1.Mul(sann.NL2.Weights.T(), &dZ2)
+	dZ1.MulElem(&dZ1, ReLUDerivation(Z1))
+
+	dW1.Mul(&dZ1, X.T())
+	dW1.Apply(
+		func(i int, j int, v float64) float64 {
+			return mult * v
+		}, &dW1)
+
+	db1 := mult * mat.Sum(&dZ1)
 
 	return dW1, db1, dW2, db2
 }
 
 // Compute Gradient Descent for X (data) of Y (labels).
-func (sann *SimpleANN[T]) GradientDescent(X m.Matrix[T], Y []T, alpha T,
-	iterations int) SimpleANN[T] {
-	Xrow, _ := X.Shape()
+func (sann *SimpleANN) GradientDescent(X mat.Dense, Y []float64,
+	alpha float64, iterations int) SimpleANN {
+	XRow, _ := X.Dims()
 
-	uniqueFound := map[T]bool{}
-	unique := []T{}
+	uniqueFound := map[float64]bool{}
+	unique := []float64{}
 
 	for e := range Y {
 		if uniqueFound[Y[e]] != true {
@@ -98,17 +109,24 @@ func (sann *SimpleANN[T]) GradientDescent(X m.Matrix[T], Y []T, alpha T,
 		}
 	}
 
-	sann.Initialize(Xrow, len(unique), 0.5, -0.5)
+	sann.Initialize(XRow, len(unique), 0.5, -0.5)
 
 	fmt.Printf("\nGradient Descent training starts ...\n")
 	for i := 0; i < iterations; i++ {
 		Z1, A1, Z2, A2 := sann.ForwardPropagation(X)
+		if i == 0 {
+			// After the first index, its all NaN values.
+			// Even the first index contains +Inf values, maybe something wrong
+			// with the Activation Functions?
+			fmt.Println(A2)
+		}
 		dW1, db1, dW2, db2 := sann.BackPropagation(Z1, A1, Z2, A2, X, Y)
 		sann.Update(dW1, db1, dW2, db2, alpha)
-		if i%10 == 0 {
+		if i%2 == 0 {
 			fmt.Println("Iteration: ", i)
-			// predictions := GetPredictions(A2)
-			// fmt.Println(GetAccuracy(predictions, Y))
+			predictions := eval.GetPredictions(*mat.DenseCopyOf(A2.T()))
+			result := eval.GetAccuracy(predictions, Y)
+			fmt.Println("Score: ", result)
 		}
 	}
 

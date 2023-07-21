@@ -6,7 +6,65 @@ package matrix
 import (
 	"fmt"
 	"math/rand"
+
+	"gonum.org/v1/gonum/mat"
 )
+
+// Initialize matrix of dim/shape r x c with minimum and maximum
+// values of min and max respectively
+func RandMatrix(r, c int, min, max float64) *mat.Dense {
+	data := make([]float64, r*c)
+
+	for i := range data {
+		data[i] = min + rand.Float64()*(max-min)
+	}
+
+	output := mat.NewDense(r, c, data)
+
+	return output
+}
+
+// Broadcast a single column src matrix into the trg matrix.
+// The use case are element-wise operations of trg matrix with single
+// columns and src matrix with many columns.
+func Broadcast(src, trg mat.Dense) *mat.Dense {
+	trgRow, trgColumn := trg.Dims()
+	broadcastedMatrix := *mat.NewDense(trgRow, trgColumn, nil)
+	for i := 0; i < trgRow; i++ {
+		elem := src.At(i, 0)
+		var rowContent []float64
+		for j := 0; j < trgColumn; j++ {
+			rowContent = append(rowContent, elem)
+		}
+		broadcastedMatrix.SetRow(i, rowContent)
+	}
+
+	return &broadcastedMatrix
+}
+
+// Shuffle the data matrix with the labels in place.
+func Shuffle(matrix mat.Dense, labels []float64) {
+	row, _ := matrix.Dims()
+
+	var tmpMatRow [][]float64
+	for i := 0; i < row; i++ {
+		tmpMatRow = append(tmpMatRow, matrix.RawRowView(i))
+	}
+
+	for i := 0; i < row; i++ {
+		j := rand.Intn(i + 1)
+		tmpMatRow[i], tmpMatRow[j] = tmpMatRow[j], tmpMatRow[i]
+		labels[i], labels[j] = labels[j], labels[i]
+	}
+
+	for i := 0; i < row; i++ {
+		matrix.SetRow(i, tmpMatRow[i])
+	}
+}
+
+/*
+STANDARD LIBRARY ONLY
+*/
 
 // Initialize a 2D matrix with zero values.
 func (m *Matrix[T]) ZerosMatrix(row int, column int) {
@@ -41,38 +99,6 @@ func (m *Matrix[T]) RandMatrix(row int, column int, min T, max T) {
 
 		m.Value = append(m.Value, newRow)
 	}
-}
-
-// Find the highest value inside the matrix.
-func (m *Matrix[T]) Max() T {
-	row, column := m.Shape()
-	var highestVal T
-
-	for i := 0; i < row; i++ {
-		for j := 0; j < column; j++ {
-			if m.Value[i][j] > highestVal {
-				highestVal = m.Value[i][j]
-			}
-		}
-	}
-
-	return highestVal
-}
-
-// Find the lowest value inside the matrix.
-func (m *Matrix[T]) Min() T {
-	row, column := m.Shape()
-	var lowestVal T
-
-	for i := 0; i < row; i++ {
-		for j := 0; j < column; j++ {
-			if m.Value[i][j] < lowestVal {
-				lowestVal = m.Value[i][j]
-			}
-		}
-	}
-
-	return lowestVal
 }
 
 // As we are dealing with array of arrays, "row" is basically the length
@@ -110,7 +136,7 @@ func (m *Matrix[T]) Transpose() Matrix[T] {
 // 1. Subtraction
 // 2. Multiplication
 // 3. Division
-func (m *Matrix[T]) ScaOp(num T, op int) Matrix[T] {
+func (m *Matrix[T]) scaOp(num T, op int) Matrix[T] {
 	row, column := m.Shape()
 	var newMatrix Matrix[T]
 
@@ -138,12 +164,30 @@ func (m *Matrix[T]) ScaOp(num T, op int) Matrix[T] {
 	return newMatrix
 }
 
+func (m *Matrix[T]) ScalarAdd(num T) Matrix[T] {
+	return m.scaOp(num, 0)
+}
+
+func (m *Matrix[T]) ScalarSub(num T) Matrix[T] {
+	return m.scaOp(num, 1)
+}
+
+func (m *Matrix[T]) ScalarMul(num T) Matrix[T] {
+	return m.scaOp(num, 2)
+}
+
+func (m *Matrix[T]) ScalarDiv(num T) Matrix[T] {
+	return m.scaOp(num, 3)
+}
+
 // As there can be only one output, failed matrix dot product operation
 // would result in a matrix of [[0.0]].
 func (leftMatrix *Matrix[T]) Dot(rightMatrix Matrix[T]) Matrix[T] {
 	var dotProduct Matrix[T]
 	leftRow, leftColumn := leftMatrix.Shape()
 	rightRow, rightColumn := rightMatrix.Shape()
+	fmt.Println(leftMatrix.SprintfShape())
+	fmt.Println(rightMatrix.SprintfShape())
 
 	// If dot product can be done, which means:
 	// - Row of right matrix is equal to column of left matrix.
@@ -155,9 +199,11 @@ func (leftMatrix *Matrix[T]) Dot(rightMatrix Matrix[T]) Matrix[T] {
 
 				// For each x[i][:] and y[:][i]
 				for k := 0; k < leftColumn; k++ {
+					// fmt.Println(leftMatrix.Value[i][k] * rightMatrix.Value[k][i])
 					newItem = newItem + (leftMatrix.Value[i][k] * rightMatrix.Value[k][i])
 
 				}
+				// fmt.Println(newItem)
 
 				newRow = append(newRow, newItem)
 			}
@@ -192,7 +238,7 @@ func (leftMatrix *Matrix[T]) Dot(rightMatrix Matrix[T]) Matrix[T] {
 // [[1, 1, 1],
 //
 //	[1, 1, 1]]
-func (leftMatrix *Matrix[T]) Add(rightMatrix Matrix[T]) Matrix[T] {
+func (leftMatrix *Matrix[T]) opElem(rightMatrix Matrix[T], op int) Matrix[T] {
 	var result Matrix[T]
 	leftRow, leftColumn := leftMatrix.Shape()
 	rightRow, rightColumn := rightMatrix.Shape()
@@ -205,7 +251,16 @@ func (leftMatrix *Matrix[T]) Add(rightMatrix Matrix[T]) Matrix[T] {
 			for i := 0; i < leftRow; i++ {
 				newRow := []T{}
 				for j := 0; j < leftColumn; j++ {
-					newRow = append(newRow, leftMatrix.Value[i][j]+rightMatrix.Value[i][0])
+					switch op {
+					case 0:
+						newRow = append(newRow, leftMatrix.Value[i][j]+rightMatrix.Value[i][0])
+					case 1:
+						newRow = append(newRow, leftMatrix.Value[i][j]-rightMatrix.Value[i][0])
+					case 2:
+						newRow = append(newRow, leftMatrix.Value[i][j]*rightMatrix.Value[i][0])
+					case 3:
+						newRow = append(newRow, leftMatrix.Value[i][j]/rightMatrix.Value[i][0])
+					}
 				}
 				result.Value = append(result.Value, newRow)
 			}
@@ -215,7 +270,17 @@ func (leftMatrix *Matrix[T]) Add(rightMatrix Matrix[T]) Matrix[T] {
 			for i := 0; i < leftRow; i++ {
 				newRow := []T{}
 				for j := 0; j < leftColumn; j++ {
-					newRow = append(newRow, leftMatrix.Value[i][j]+rightMatrix.Value[i][j])
+					switch op {
+					case 0:
+						newRow = append(newRow, leftMatrix.Value[i][j]+rightMatrix.Value[i][j])
+					case 1:
+						newRow = append(newRow, leftMatrix.Value[i][j]-rightMatrix.Value[i][j])
+					case 2:
+						newRow = append(newRow, leftMatrix.Value[i][j]*rightMatrix.Value[i][j])
+					case 3:
+						newRow = append(newRow, leftMatrix.Value[i][j]/rightMatrix.Value[i][j])
+
+					}
 				}
 				result.Value = append(result.Value, newRow)
 			}
@@ -233,48 +298,20 @@ func (leftMatrix *Matrix[T]) Add(rightMatrix Matrix[T]) Matrix[T] {
 	return result
 }
 
-// Subtract the original matrix with the one given in the arguments.
-// Broadcast the columns if possible.
-// TODO: Create a test if the broadcasting really happens too.
-func (leftMatrix *Matrix[T]) Subtract(rightMatrix Matrix[T]) Matrix[T] {
-	var result Matrix[T]
-	leftRow, leftColumn := leftMatrix.Shape()
-	rightRow, rightColumn := rightMatrix.Shape()
+func (m *Matrix[T]) AddElem(matrix Matrix[T]) Matrix[T] {
+	return m.opElem(matrix, 0)
+}
 
-	// If subtraction can be done, which means:
-	// - Row of x is equal to row of y, AND
-	// - Column of y is one OR equal to column of x
-	if leftRow == rightRow && (rightColumn == 1 || rightColumn == leftColumn) {
-		if rightColumn == 1 {
-			for i := 0; i < leftRow; i++ {
-				newRow := []T{}
-				for j := 0; j < leftColumn; j++ {
-					newRow = append(newRow, leftMatrix.Value[i][j]-rightMatrix.Value[i][0])
-				}
-				result.Value = append(result.Value, newRow)
-			}
-		}
+func (m *Matrix[T]) SubElem(matrix Matrix[T]) Matrix[T] {
+	return m.opElem(matrix, 1)
+}
 
-		if rightColumn == leftColumn {
-			for i := 0; i < leftRow; i++ {
-				newRow := []T{}
-				for j := 0; j < leftColumn; j++ {
-					newRow = append(newRow, leftMatrix.Value[i][j]-rightMatrix.Value[i][j])
-				}
-				result.Value = append(result.Value, newRow)
-			}
-		}
-	}
+func (m *Matrix[T]) MulElem(matrix Matrix[T]) Matrix[T] {
+	return m.opElem(matrix, 2)
+}
 
-	// If subtraction cannot be done.
-	if leftRow != rightRow || (leftRow == rightRow && (rightColumn > 1 && rightColumn < leftColumn)) {
-		newRow := []T{}
-		var newItem T = 0.0
-		newRow = append(newRow, newItem)
-		result.Value = append(result.Value, newRow)
-	}
-
-	return result
+func (m *Matrix[T]) DivElem(matrix Matrix[T]) Matrix[T] {
+	return m.opElem(matrix, 3)
 }
 
 // Sum the matrix element-wise.
@@ -289,6 +326,38 @@ func (m *Matrix[T]) Sum() T {
 	}
 
 	return sum
+}
+
+// Find the highest value inside the matrix.
+func (m *Matrix[T]) Max() T {
+	row, column := m.Shape()
+	var highestVal T
+
+	for i := 0; i < row; i++ {
+		for j := 0; j < column; j++ {
+			if m.Value[i][j] > highestVal {
+				highestVal = m.Value[i][j]
+			}
+		}
+	}
+
+	return highestVal
+}
+
+// Find the lowest value inside the matrix.
+func (m *Matrix[T]) Min() T {
+	row, column := m.Shape()
+	var lowestVal T
+
+	for i := 0; i < row; i++ {
+		for j := 0; j < column; j++ {
+			if m.Value[i][j] < lowestVal {
+				lowestVal = m.Value[i][j]
+			}
+		}
+	}
+
+	return lowestVal
 }
 
 // Shuffle the data matrix with the labels in place.
