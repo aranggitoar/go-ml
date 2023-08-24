@@ -11,7 +11,7 @@ import (
 )
 
 // Initialize matrix of dim/shape r x c with minimum and maximum
-// values of min and max respectively
+// values of min and max respectively.
 func RandMatrix(r, c int, min, max float64) *mat.Dense {
 	data := make([]float64, r*c)
 
@@ -19,14 +19,12 @@ func RandMatrix(r, c int, min, max float64) *mat.Dense {
 		data[i] = min + rand.Float64()*(max-min)
 	}
 
-	output := mat.NewDense(r, c, data)
-
-	return output
+	return mat.NewDense(r, c, data)
 }
 
 // Broadcast a single column src matrix into the trg matrix.
 // The use case are element-wise operations of trg matrix with single
-// columns and src matrix with many columns.
+// column and src matrix with many columns.
 func Broadcast(src, trg mat.Dense) *mat.Dense {
 	trgRow, trgColumn := trg.Dims()
 	broadcastedMatrix := *mat.NewDense(trgRow, trgColumn, nil)

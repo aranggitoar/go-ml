@@ -48,15 +48,29 @@ func (sann *SimpleANN) ForwardPropagation(X mat.Dense) (mat.Dense, mat.Dense, ma
 	var Z1 mat.Dense
 	var Z2 mat.Dense
 
+	// pprint.MatPrint(&X)
+	// FOR SOME REASON THE RESULT OF Z1 PRODUCT IS IN THE HUNDREDS, ITS
+	// SUPPOSED TO BE LESS.
+	// fmt.Println(sann.NL1.Weights.Dims())
+	// fmt.Println(X.Dims())
+	// Z1.Product(&sann.NL1.Weights, &X)
 	Z1.Mul(&sann.NL1.Weights, &X)
-	Z1.Add(&Z1, m.Broadcast(sann.NL1.Weights, Z1))
+	// pprint.MatPrint(&X)
+	// pprint.MatPrint(Z1.RowView(0))
+	// pprint.MatPrint(&sann.NL1.Weights)
+	Z1.Add(&Z1, m.Broadcast(sann.NL1.Biases, Z1))
 
 	A1 := *ReLU(Z1)
 
-	Z2.Mul(&sann.NL2.Weights, &A1)
+	// Z2.Mul(&sann.NL2.Weights, &A1)
+	Z2.Product(&sann.NL2.Weights, &A1)
+	// fmt.Println(Z2)
 	Z2.Add(&Z2, m.Broadcast(sann.NL2.Biases, Z2))
 
-	A2 := Softmax(A1)
+	// fmt.Println(Z2)
+
+	A2 := Softmax(Z2)
+	// pprint.MatPrint(&A2)
 
 	return Z1, A1, Z2, A2
 }
@@ -72,7 +86,7 @@ func (sann *SimpleANN) BackPropagation(Z1, A1, Z2, A2, X mat.Dense,
 
 	dZ2.Sub(&A2, oneHotY)
 
-	dW2.Mul(&dZ2, A1.T())
+	dW2.Product(&dZ2, A1.T())
 	dW2.Apply(
 		func(i int, j int, v float64) float64 {
 			return mult * v
@@ -80,10 +94,10 @@ func (sann *SimpleANN) BackPropagation(Z1, A1, Z2, A2, X mat.Dense,
 
 	db2 := mult * mat.Sum(&dZ2)
 
-	dZ1.Mul(sann.NL2.Weights.T(), &dZ2)
+	dZ1.Product(sann.NL2.Weights.T(), &dZ2)
 	dZ1.MulElem(&dZ1, ReLUDerivation(Z1))
 
-	dW1.Mul(&dZ1, X.T())
+	dW1.Product(&dZ1, X.T())
 	dW1.Apply(
 		func(i int, j int, v float64) float64 {
 			return mult * v
@@ -114,10 +128,10 @@ func (sann *SimpleANN) GradientDescent(X mat.Dense, Y []float64,
 	fmt.Printf("\nGradient Descent training starts ...\n")
 	for i := 0; i < iterations; i++ {
 		Z1, A1, Z2, A2 := sann.ForwardPropagation(X)
-		if i == 0 {
-			// After the first index, its all NaN values.
-			// Even the first index contains +Inf values, maybe something wrong
-			// with the Activation Functions?
+		if i == 1 {
+			// 	// After the first index, its all NaN values.
+			// 	// Even the first index contains +Inf values, maybe something wrong
+			// 	// with the Activation Functions?
 			fmt.Println(A2)
 		}
 		dW1, db1, dW2, db2 := sann.BackPropagation(Z1, A1, Z2, A2, X, Y)
